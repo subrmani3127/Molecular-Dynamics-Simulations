@@ -1,0 +1,106 @@
+import MDAnalysis as mda
+from MDAnalysis.analysis import distances
+import numpy as np
+
+# --- Input files and parameters ---
+gro_file = "O08_41sys.gro"      # Structure/topology file
+xtc_file = "O08_41-sys.xtc"     # Trajectory file
+cutoff = 4.5                     # Distance cutoff in Angstroms to define "bound"
+
+# --- Load the Universe ---
+try:
+    u = mda.Universe(gro_file, xtc_file)
+    print(f"Successfully loaded trajectory with {len(u.trajectory)} frames")
+except Exception as e:
+    print(f"Error loading files: {e}")
+    exit()
+
+# --- Define Selections ---
+# It's crucial to define a specific binding site, not the whole protein.
+ligand_selection = "resname bgc"  # bgc is the name of the ligand in the system.
+binding_site_selection = "protein and (resid 167 or resid 356)"  # IMPORTANT: Define your binding site residues of respective proteins
+
+ligand = u.select_atoms(ligand_selection)
+binding_site = u.select_atoms(binding_site_selection)
+
+# --- Validate Selections ---
+if len(ligand) == 0:
+    print(f"Error: Ligand selection '{ligand_selection}' found 0 atoms. Please check your resname.")
+    exit()
+
+if len(binding_site) == 0:
+    print(f"Error: Binding site selection '{binding_site_selection}' found 0 atoms. Please check your residue IDs.")
+    exit()
+
+print(f"Ligand atoms found: {len(ligand)}")
+print(f"Binding site atoms found: {len(binding_site)}")
+print(f"Analyzing ligand '{ligand_selection}' with binding site '{binding_site_selection}'...")
+# --- Analysis Loop ---
+is_bound_timeline = []
+
+for ts in u.trajectory:
+    # Calculate the array of all distances between the ligand and binding site atoms
+    dist_array = distances.distance_array(ligand.positions, binding_site.positions)
+
+    # Find the minimum value in that array
+    min_dist = dist_array.min()
+
+    # Check if the ligand is within the cutoff (MDAnalysis distances are in Angstroms)
+    is_bound_timeline.append(min_dist < cutoff)
+
+    # Optional: Print progress for long trajectories
+    if ts.frame % 1000 == 0:
+        print(f"Processed frame {ts.frame}, min distance: {min_dist:.2f} Å")
+
+print(f"Analysis complete. Processed {len(is_bound_timeline)} frames.")
+
+# --- Post-processing: Calculate durations of bound states ---
+dt = u.trajectory.dt  # Time step between frames in picoseconds (ps)
+print(f"Time step: {dt} ps")
+
+durations_ps = []
+bound_frames_count = 0
+
+for is_bound in is_bound_timeline:
+    if is_bound:
+        bound_frames_count += 1
+    else:
+        if bound_frames_count > 0:
+            durations_ps.append(bound_frames_count * dt)
+        bound_frames_count = 0
+
+# If the trajectory ends while the ligand is still bound, record that duration
+if bound_frames_count > 0:
+    durations_ps.append(bound_frames_count * dt)
+    
+# --- Final Results ---
+if durations_ps:
+    # Convert to nanoseconds for the final report
+    durations_ns = [t / 1000.0 for t in durations_ps]
+    avg_res_time_ns = np.mean(durations_ns)
+
+    print("\n" + "="*50)
+    print("--- RESIDENCE TIME ANALYSIS RESULTS ---")
+    print("="*50)
+    print(f"Total binding events detected: {len(durations_ns)}")
+    print(f"Individual binding durations (ns): {[f'{d:.3f}' for d in durations_ns]}")
+    print(f"Average residence time: {avg_res_time_ns:.3f} ns")
+    print(f"Minimum residence time: {min(durations_ns):.3f} ns")
+    print(f"Maximum residence time: {max(durations_ns):.3f} ns")
+    print(f"Total bound time: {sum(durations_ns):.3f} ns")
+
+    # Calculate binding percentage
+    total_frames_bound = sum(is_bound_timeline)
+    binding_percentage = (total_frames_bound / len(is_bound_timeline)) * 100
+    print(f"Percentage of trajectory bound: {binding_percentage:.1f}%")
+
+else:
+    print("\n" + "="*50)
+    print("--- ANALYSIS RESULTS ---")
+    print("="*50)
+    print("No binding events were detected with the given cutoff and selections.")
+    print("Consider:")
+    print("- Increasing the distance cutoff")
+    print("- Checking your ligand and binding site selections")
+    print("- Verifying that the ligand actually binds in your trajectory")
+                                                                                                                                                    
