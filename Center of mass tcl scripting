@@ -23,3 +23,4 @@ proc center_of_mass {selection} {
         }
         # The "1.0" can't be "1", since otherwise integer division is done
         return [vecscale [expr 1.0/$mass] $com]
+}
